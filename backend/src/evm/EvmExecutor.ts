@@ -50,7 +50,7 @@ export class EvmExecutor {
             if (rpcUrls.length > 0) {
                 for (const rpcUrl of rpcUrls) {
                     try {
-                        const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true });
+                        const provider = new ethers.JsonRpcProvider(rpcUrl);
                         const code = await Promise.race([
                             provider.getCode(toAddressStr),
                             new Promise<string>((_, reject) => setTimeout(() => reject(new Error("RPC Timeout")), 5000))
@@ -63,16 +63,21 @@ export class EvmExecutor {
                             let toAccount = await evm.stateManager.getAccount(toAddress);
                             if (!toAccount) { toAccount = new Account(); }
                             await evm.stateManager.putAccount(toAddress, toAccount);
-                            await (evm.stateManager as any).putCode(toAddress, codeBytes);
+                            await evm.stateManager.putContractCode(toAddress, codeBytes);
+                            console.log(`[Fork] Fetched code from ${rpcUrl}: ${code.length > 10 ? code.slice(0, 10) + '...' : code}`);
                             success = true;
                             break;
                         } else {
+                            console.log(`[Fork] Code is empty/0x at ${toAddressStr} on ${rpcUrl}`);
                             const chainIdNum = Number(chainId.toString().split(':')[1] || chainId);
                             if (chainIdNum === 31337) continue;
                             success = true;
                             break;
                         }
-                    } catch (err) { continue; }
+                    } catch (err: any) {
+                        console.error(`[Fork] Error setupForkedEVM loop: ${err.message}`);
+                        continue;
+                    }
                 }
             }
         }
@@ -171,7 +176,7 @@ export class EvmExecutor {
                             let implAccount = await evm.stateManager.getAccount(implAddress);
                             if (!implAccount) { implAccount = new Account(); }
                             await evm.stateManager.putAccount(implAddress, implAccount);
-                            await (evm.stateManager as any).putCode(implAddress, hexToBytes(implCode as `0x${string}`));
+                            await evm.stateManager.putContractCode(implAddress, hexToBytes(implCode as `0x${string}`));
                             addressToAnalyze = implAddress;
                             console.log(`[ProxyDetector] Implementation code injected (${implCode.length} chars)`);
                         }
@@ -201,7 +206,16 @@ export class EvmExecutor {
             return {
                 trace: traceResult,
                 securityReport,
-                simulationResult: result
+                simulationResult: {
+                    gasUsed: result.execResult.executionGasUsed.toString(),
+                    returnValue: Buffer.from(result.execResult.returnValue).toString('hex'),
+                    logs: result.execResult.logs?.map(l => ({
+                        address: l[0].toString(),
+                        topics: l[1].map(t => Buffer.from(t).toString('hex')),
+                        data: Buffer.from(l[2]).toString('hex')
+                    })),
+                    exceptionError: result.execResult.exceptionError ? result.execResult.exceptionError.error : undefined
+                }
             };
         }
     }

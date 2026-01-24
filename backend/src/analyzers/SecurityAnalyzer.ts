@@ -103,7 +103,21 @@ export class SecurityAnalyzer {
 
         // 3. Bytecode Analysis (Simple Honeypot markers)
         try {
-            const code = await evm.stateManager.getCode(targetAddress);
+            let code = await evm.stateManager.getContractCode(targetAddress);
+
+            // [Fix] If EVM has no code but we have a provider, fetch from RPC
+            if (code.length === 0 && provider) {
+                try {
+                    const codeHex = await provider.getCode(targetAddress.toString());
+                    if (codeHex && codeHex !== "0x") {
+                        code = Buffer.from(codeHex.slice(2), 'hex');
+                        console.log(`[Security] Fetched ${code.length} bytes of code from RPC`);
+                    }
+                } catch (e) {
+                    console.warn("[Security] Failed to fetch code from RPC", e);
+                }
+            }
+
             const codeHex = Buffer.from(code).toString('hex').toLowerCase();
 
             console.log("[Security] Bytecode length:", code.length);
@@ -133,6 +147,7 @@ export class SecurityAnalyzer {
                 { name: "removeLiquidity", selector: "78265506", risk: 90 }, // Uniswap removeLiquidity
                 { name: "removeLiquidityETH", selector: "af2979eb", risk: 90 },
                 { name: "drain()", selector: "d040220a", risk: 100 },      // Explicit drain functions
+                { name: "emergencyDrain()", selector: "2caac08b", risk: 100 }, // Found in Honeypot.sol
                 { name: "withdrawETH()", selector: "474cf53d", risk: 50 },  // Owner withdrawing all ETH
 
                 // Internal/Hidden Transfer Logic (Honeypot mechanism)
