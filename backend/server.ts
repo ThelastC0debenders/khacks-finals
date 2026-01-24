@@ -1,6 +1,9 @@
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import express from "express";
+import cors from "cors";
+
 
 // Load .env from root directory
 const __filename = fileURLToPath(import.meta.url);
@@ -22,9 +25,7 @@ if (process.env.ALCHEMY_API_KEY) {
     console.log("[Setup] Alchemy Key (first 5 chars):", process.env.ALCHEMY_API_KEY.substring(0, 5) + "...");
 }
 
-import express from "express";
-import cors from "cors";
-import { RedisClient } from "./services/RedisClient.ts";
+
 
 
 const app = express();
