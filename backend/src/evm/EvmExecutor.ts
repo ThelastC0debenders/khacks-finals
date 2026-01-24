@@ -225,6 +225,9 @@ export class EvmExecutor {
             return {
                 trace: traceResult,
                 securityReport,
+                instructionCount,
+                callCount,
+                status,
                 simulationResult: {
                     gasUsed: result.execResult.executionGasUsed.toString(),
                     returnValue: Buffer.from(result.execResult.returnValue).toString('hex'),
