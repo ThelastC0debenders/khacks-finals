@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "yarn": "^1.22.22"
-  },
-  "version": "0.0.0"
+    "@metamask/snaps-sdk": "^10.4.0"
+  }
 }
