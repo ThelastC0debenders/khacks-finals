@@ -184,3 +184,149 @@ export class ProxyDetector {
 
         return result;
     }
+
+    /**
+     * Check EIP-1822 UUPS proxy pattern
+     */
+    private static async checkEIP1822(
+        evm: EVM,
+        address: Address,
+        provider?: ethers.JsonRpcProvider
+    ): Promise<ProxyInfo> {
+        const result: ProxyInfo = { isProxy: false };
+
+        try {
+            const slot = hexToBytes(STORAGE_SLOTS.EIP1822_IMPLEMENTATION as `0x${string}`);
+            let value: Uint8Array;
+
+            try {
+                value = await evm.stateManager.getStorage(address, slot);
+            } catch {
+                if (provider) {
+                    const storageValue = await provider.getStorage(
+                        address.toString(),
+                        STORAGE_SLOTS.EIP1822_IMPLEMENTATION
+                    );
+                    value = hexToBytes(storageValue as `0x${string}`);
+                } else {
+                    return result;
+                }
+            }
+
+            const implAddress = this.extractAddress(value);
+            if (implAddress && implAddress !== '0x0000000000000000000000000000000000000000') {
+                console.log(`[ProxyDetector] EIP-1822 Implementation: ${implAddress}`);
+                result.isProxy = true;
+                result.proxyType = 'EIP-1822';
+                result.implementationAddress = implAddress;
+            }
+        } catch (error: any) {
+            console.error(`[ProxyDetector] EIP-1822 check failed:`, error.message);
+        }
+
+        return result;
+    }
+
+    /**
+     * Check EIP-897 legacy DelegateProxy (calls implementation() function)
+     */
+    private static async checkEIP897(evm: EVM, address: Address): Promise<ProxyInfo> {
+        const result: ProxyInfo = { isProxy: false };
+
+        try {
+            // Call implementation() function - selector: 0x5c60da1b
+            const selector = hexToBytes('0x5c60da1b' as `0x${string}`);
+
+            const callResult = await evm.runCall({
+                to: address,
+                data: selector,
+                gasLimit: BigInt(50000)
+            });
+
+            if (!callResult.execResult.exceptionError && callResult.execResult.returnValue.length === 32) {
+                const implAddress = this.extractAddress(callResult.execResult.returnValue);
+                if (implAddress && implAddress !== '0x0000000000000000000000000000000000000000') {
+                    console.log(`[ProxyDetector] EIP-897 Implementation: ${implAddress}`);
+                    result.isProxy = true;
+                    result.proxyType = 'EIP-897';
+                    result.implementationAddress = implAddress;
+                }
+            }
+        } catch (error: any) {
+            // Not a proxy or doesn't implement this interface
+        }
+
+        return result;
+    }
+
+    /**
+     * Extract address from 32-byte storage value
+     */
+    private static extractAddress(value: Uint8Array): string | null {
+        if (value.length < 20) return null;
+
+        // Address is in the last 20 bytes of a 32-byte value
+        const addressBytes = value.slice(-20);
+        const addressHex = bytesToHex(addressBytes);
+
+        // Check if it's all zeros
+        if (addressBytes.every(b => b === 0)) {
+            return null;
+        }
+
+        return addressHex;
+    }
+
+    /**
+     * Recursively resolve implementation chain (for nested proxies)
+     * Returns the final implementation address
+     */
+    static async resolveImplementationChain(
+        evm: EVM,
+        address: Address,
+        provider?: ethers.JsonRpcProvider,
+        maxDepth: number = 5
+    ): Promise<{ chain: string[]; finalImplementation?: string }> {
+        const chain: string[] = [address.toString()];
+        let currentAddress = address;
+        let depth = 0;
+
+        while (depth < maxDepth) {
+            const proxyInfo = await this.detectProxy(evm, currentAddress, provider);
+
+            if (!proxyInfo.isProxy || !proxyInfo.implementationAddress) {
+                break;
+            }
+
+            chain.push(proxyInfo.implementationAddress);
+
+            // Load implementation code into EVM if provider available
+            if (provider) {
+                try {
+                    const implCode = await provider.getCode(proxyInfo.implementationAddress);
+                    if (implCode && implCode !== '0x') {
+                        const { createAddressFromString, Account } = await import('@ethereumjs/util');
+                        const implAddress = createAddressFromString(proxyInfo.implementationAddress);
+                        const implAccount = new Account();
+                        await evm.stateManager.putAccount(implAddress, implAccount);
+                        await (evm.stateManager as any).putCode(implAddress, hexToBytes(implCode as `0x${string}`));
+                        currentAddress = implAddress;
+                    } else {
+                        break;
+                    }
+                } catch {
+                    break;
+                }
+            } else {
+                break;
+            }
+
+            depth++;
+        }
+
+        return {
+            chain,
+            finalImplementation: chain.length > 1 ? chain[chain.length - 1] : undefined
+        };
+    }
+}
