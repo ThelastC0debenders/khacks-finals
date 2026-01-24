@@ -1,5 +1,18 @@
 {
+  "name": "khacks-wallet-snap",
+  "version": "0.1.0",
+  "description": "MetaMask Snap for Khacks Finals",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "mm-snap serve",
+    "build": "mm-snap build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "dependencies": {
     "@metamask/snaps-sdk": "^10.4.0"
+  },
+  "devDependencies": {
+    "@metamask/snaps-cli": "^6.2.1",
+    "typescript": "^5.4.3"
   }
 }

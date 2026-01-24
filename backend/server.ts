@@ -1,6 +1,11 @@
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import express from "express";
+import cors from "cors";
+import { EvmExecutor } from "./src/evm/EvmExecutor.js";
+import { RedisClient } from "./src/services/RedisClient.js";
+import { ScanHistory } from "./src/services/ScanHistory.js";
 
 // Load .env from root directory
 const __filename = fileURLToPath(import.meta.url);
@@ -21,12 +26,6 @@ console.log("[Setup] ALCHEMY_API_KEY is set:", !!process.env.ALCHEMY_API_KEY);
 if (process.env.ALCHEMY_API_KEY) {
     console.log("[Setup] Alchemy Key (first 5 chars):", process.env.ALCHEMY_API_KEY.substring(0, 5) + "...");
 }
-
-import express from "express";
-import cors from "cors";
-import { EvmExecutor } from "./evm/EvmExecutor.ts";
-import { RedisClient } from "./services/RedisClient.ts";
-import { ScanHistory } from "./services/ScanHistory.ts";
 
 const app = express();
 app.use(express.json());
@@ -78,8 +77,8 @@ app.post("/rpc", async (req, res) => {
                 result: payload
             });
         } catch (error: any) {
-            console.error("Simulation error:", error);
-            res.json({
+            console.error("❌ Simulation Error:", error.message);
+            return res.json({
                 jsonrpc: "2.0",
                 id,
                 error: {
