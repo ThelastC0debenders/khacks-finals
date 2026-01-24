@@ -61,6 +61,16 @@ if (process.env.MAINNET_RPC_URL) {
         .catch(err => console.error("Fork init failed", err));
 }
 
+// Health check
+app.get("/health", async (req, res) => {
+    const redisConnected = await RedisClient.isConnected();
+    res.json({
+        status: "ok",
+        redis: redisConnected ? "connected" : "disconnected",
+        timestamp: new Date().toISOString()
+    });
+});
+
 app.post("/rpc", async (req, res) => {
     const { method, params, id } = req.body;
 
