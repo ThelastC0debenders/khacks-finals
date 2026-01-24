@@ -1,0 +1,14 @@
+{
+    "name": "khacks-local-chain",
+    "version": "1.0.0",
+    "description": "Local Hardhat Chain for Khacks Wallet",
+    "scripts": {
+        "chain": "hardhat node"
+    },
+    "devDependencies": {
+        "hardhat": "^2.22.2",
+        "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.4.3"
+    }
+}

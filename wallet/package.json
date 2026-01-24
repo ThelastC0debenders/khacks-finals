@@ -6,7 +6,8 @@
   "scripts": {
     "start": "mm-snap serve",
     "build": "mm-snap build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "chain": "cd local-chain && npm install && npm run chain"
   },
   "dependencies": {
     "@metamask/snaps-sdk": "^10.4.0"
