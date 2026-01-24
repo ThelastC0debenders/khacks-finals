@@ -1,0 +1,21 @@
+{
+  "features": [
+    "sim_success_rate",
+    "owner_privilege_ratio",
+    "time_variance_score",
+    "gated_branch_ratio",
+    "mint_transfer_ratio",
+    "suspicious_opcode_density",
+    "proxy_depth_normalized",
+    "sload_density",
+    "bytecode_entropy",
+    "counterfactual_risk",
+    "time_bomb_risk",
+    "gas_anomaly_score",
+    "security_report_risk",
+    "flag_density",
+    "revert_rate"
+  ],
+  "version": "calibrated-v2.1",
+  "calibration": "isotonic"
+}
