@@ -7,6 +7,10 @@ import { EvmExecutor } from "./src/evm/EvmExecutor.js";
 import { RedisClient } from "./src/services/RedisClient.js";
 import { ScanHistory } from "./src/services/ScanHistory.js";
 
+// @ts-ignore
+BigInt.prototype.toJSON = function () { return this.toString(); };
+
+
 // Load .env from root directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -206,3 +206,24 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Hardhat
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+.hardhat/
+
+# Updates
+wallet/local-chain/contracts
+wallet/local-chain/node_modules/
+wallet/local-chain/artifacts/
+wallet/local-chain/cache/
+wallet/local-chain/typechain-types/
+
+# General Node
+node_modules/
+dist/
+.env
+.DS_Store

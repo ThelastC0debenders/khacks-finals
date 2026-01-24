@@ -8,3 +8,4 @@ onnxmltools
 skl2onnx
 onnxruntime
 joblib
+fastapi

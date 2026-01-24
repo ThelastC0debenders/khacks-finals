@@ -42,7 +42,7 @@ export class ProxyDetector {
 
         try {
             // Get contract bytecode
-            const code = await evm.stateManager.getCode(address);
+            const code = await evm.stateManager.getContractCode(address);
             const codeHex = bytesToHex(code).toLowerCase().slice(2); // Remove 0x prefix
 
             // 1. Check for Minimal Proxy (EIP-1167)
@@ -136,7 +136,7 @@ export class ProxyDetector {
 
             // Try from EVM state first
             try {
-                implValue = await evm.stateManager.getStorage(address, implSlot);
+                implValue = await evm.stateManager.getContractStorage(address, implSlot);
             } catch {
                 // If not in EVM state, try from provider
                 if (provider) {
@@ -161,7 +161,7 @@ export class ProxyDetector {
                 // Also check for beacon
                 const beaconSlot = hexToBytes(STORAGE_SLOTS.EIP1967_BEACON as `0x${string}`);
                 try {
-                    const beaconValue = await evm.stateManager.getStorage(address, beaconSlot);
+                    const beaconValue = await evm.stateManager.getContractStorage(address, beaconSlot);
                     const beaconAddress = this.extractAddress(beaconValue);
                     if (beaconAddress && beaconAddress !== '0x0000000000000000000000000000000000000000') {
                         result.beaconAddress = beaconAddress;
@@ -171,7 +171,7 @@ export class ProxyDetector {
                 // Check admin slot
                 const adminSlot = hexToBytes(STORAGE_SLOTS.EIP1967_ADMIN as `0x${string}`);
                 try {
-                    const adminValue = await evm.stateManager.getStorage(address, adminSlot);
+                    const adminValue = await evm.stateManager.getContractStorage(address, adminSlot);
                     const adminAddress = this.extractAddress(adminValue);
                     if (adminAddress && adminAddress !== '0x0000000000000000000000000000000000000000') {
                         result.adminAddress = adminAddress;
@@ -200,7 +200,7 @@ export class ProxyDetector {
             let value: Uint8Array;
 
             try {
-                value = await evm.stateManager.getStorage(address, slot);
+                value = await evm.stateManager.getContractStorage(address, slot);
             } catch {
                 if (provider) {
                     const storageValue = await provider.getStorage(
@@ -305,8 +305,8 @@ export class ProxyDetector {
                 try {
                     const implCode = await provider.getCode(proxyInfo.implementationAddress);
                     if (implCode && implCode !== '0x') {
-                        const { createAddressFromString, Account } = await import('@ethereumjs/util');
-                        const implAddress = createAddressFromString(proxyInfo.implementationAddress);
+                        const { Address, Account } = await import('@ethereumjs/util');
+                        const implAddress = Address.fromString(proxyInfo.implementationAddress);
                         const implAccount = new Account();
                         await evm.stateManager.putAccount(implAddress, implAccount);
                         await (evm.stateManager as any).putCode(implAddress, hexToBytes(implCode as `0x${string}`));
