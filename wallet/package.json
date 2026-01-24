@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@metamask/snaps-sdk": "^10.4.0"
+  }
+}
