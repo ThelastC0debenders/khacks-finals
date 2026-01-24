@@ -168,6 +168,77 @@ export class SecurityAnalyzer {
             console.error("[Security] Failed to analyze bytecode", e);
         }
 
+        // 4. Sentinel ML Analysis
+        try {
+            // [ML Integration] Feature Extraction
+            const code = await evm.stateManager.getContractCode(targetAddress);
+            const codeHex = Buffer.from(code).toString('hex');
+            const opcodes = codeHex.length / 2; // Rough estimate of opcode count
+
+            // Calculate Suspicious Opcode Density
+            let suspiciousOpcodeCount = 0;
+            const suspiciousSelectors = ["f9f92be4", "8456cb59", "2f2b3887", "8a8c523c", "c9044b7d", "69fe0e2d", "061c82d0", "2323cc66", "37b8d80f", "40c10f19", "9c0f929c", "78265506", "af2979eb", "d040220a", "2caac08b", "474cf53d", "30e0789e", "38d52e0f", "83151877"];
+            for (const selector of suspiciousSelectors) {
+                if (codeHex.includes(selector)) suspiciousOpcodeCount++;
+            }
+            const suspicious_opcode_density = opcodes > 0 ? (suspiciousOpcodeCount * 4) / opcodes : 0;
+
+            // Calculate Flags Density
+            const flag_density = Math.min(report.flags.length / 5, 1.0); // Normalize assuming >5 flags is max risk
+
+            // Calculate Report Risk
+            const security_report_risk = report.riskScore / 100;
+
+            // Prepare ML Payload (15 features)
+            // Using heuristics and available data to map to the schema
+            const mlFeatures = {
+                "sim_success_rate": simulationResult.status === "Success" ? 1.0 : 0.0,
+                "owner_privilege_ratio": report.ownershipStatus !== "Unknown" ? 0.8 : 0.0, // Heuristic
+                "time_variance_score": 0.0, // Not simulating time variance yet
+                "gated_branch_ratio": 0.0, // Requires CFG analysis
+                "mint_transfer_ratio": 0.0,
+                "suspicious_opcode_density": Math.min(suspicious_opcode_density * 10, 1.0), // Amplify for density
+                "proxy_depth_normalized": report.proxyInfo?.isProxy ? 0.5 : 0.0,
+                "sload_density": 0.1, // Defaulting as we don't have exact instruction count here conveniently without full trace
+                "bytecode_entropy": 0.5, // Placeholder
+                "counterfactual_risk": 0.0,
+                "time_bomb_risk": 0.0, // Requires time-travel sim
+                "gas_anomaly_score": 0.0,
+                "security_report_risk": security_report_risk,
+                "flag_density": flag_density,
+                "revert_rate": simulationResult.status.startsWith("Reverted") ? 1.0 : 0.0
+            };
+
+            console.log("[Security] Requesting ML analysis with features:", JSON.stringify(mlFeatures));
+
+            const mlResponse = await fetch("http://127.0.0.1:8000/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(mlFeatures)
+            });
+
+            if (mlResponse.ok) {
+                const mlData = await mlResponse.json();
+                console.log("[Security] ML Analysis Result:", mlData);
+
+                if (mlData.scam_probability > 0) {
+                    // Update risk score based on ML confidence and probability
+                    const mlRiskContribution = mlData.scam_probability * 100;
+                    report.riskScore = Math.max(report.riskScore, mlRiskContribution);
+
+                    if (mlData.verdict === "BLOCK" || mlData.verdict === "WARN") {
+                        report.isHoneypot = true;
+                        report.flags.push(`Sentinel ML: ${mlData.verdict} (${(mlData.scam_probability * 100).toFixed(1)}% Risk)`);
+                        if (mlData.reason) report.flags.push(`ML Insight: ${mlData.reason}`);
+                    }
+                }
+            } else {
+                console.warn("[Security] ML Service returned status:", mlResponse.status);
+            }
+        } catch (e) {
+            console.error("[Security] Failed to contact ML service:", e);
+        }
+
         return report;
     }
 }
