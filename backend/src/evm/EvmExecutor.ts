@@ -1,10 +1,11 @@
 import { ethers } from "ethers";
-import { EVM, createEVM } from "@ethereumjs/evm";
-import { Common, Chain, Hardfork, Mainnet } from "@ethereumjs/common";
-import { Address, hexToBytes, createAddressFromString, Account } from "@ethereumjs/util";
+import { EVM } from "@ethereumjs/evm";
+import { Common, Chain, Hardfork } from "@ethereumjs/common";
+import { Address, hexToBytes, Account } from "@ethereumjs/util";
 import { SecurityAnalyzer } from "../analyzers/SecurityAnalyzer.js";
 import { ProxyDetector } from "../analyzers/ProxyDetector.js";
 import { ExplanationEngine } from "../analyzers/ExplanationEngine.js";
+import { OpcodeTracer } from "../analyzers/OpcodeTracer.js";
 
 export class EvmExecutor {
     constructor() { }
@@ -38,13 +39,13 @@ export class EvmExecutor {
     }
 
     private async setupForkedEVM(chainId: number | string, toAddressStr: string | undefined, timestampOffset: number = 0): Promise<{ evm: EVM, success: boolean }> {
-        const common = new Common({ chain: Mainnet, hardfork: Hardfork.Cancun });
-        const evm = await createEVM({ common });
+        const common = new Common({ chain: Chain.Mainnet, hardfork: Hardfork.Cancun });
+        const evm = await EVM.create({ common });
 
         let success = false;
         if (toAddressStr && chainId) {
             const rpcUrls = this.resolveRpcUrls(chainId);
-            const toAddress = createAddressFromString(toAddressStr);
+            const toAddress = Address.fromString(toAddressStr);
 
             if (rpcUrls.length > 0) {
                 for (const rpcUrl of rpcUrls) {
@@ -84,7 +85,7 @@ export class EvmExecutor {
         account.balance = BigInt("0x100000000000000000000"); // 100 ETH
         await evm.stateManager.putAccount(sender, account);
 
-        const to = txParams.to ? createAddressFromString(txParams.to) : undefined;
+        const to = txParams.to ? Address.fromString(txParams.to) : undefined;
         const dataBuffer = txParams.data && txParams.data !== "0x" ? hexToBytes(txParams.data) : new Uint8Array(0);
         const value = txParams.value ? BigInt(txParams.value) : 0n;
         const gasLimit = BigInt(5000000);
@@ -107,7 +108,7 @@ export class EvmExecutor {
     async simulateTransaction(txParams: any, chainId?: number | string) {
         console.log("Initializing Raw EVM...");
         const { evm, success } = await this.setupForkedEVM(chainId || 1, txParams.to);
-        const sender = createAddressFromString(txParams.from);
+        const sender = Address.fromString(txParams.from);
 
         let instructionCount = 0;
         let sstoreCount = 0;
@@ -141,7 +142,7 @@ export class EvmExecutor {
         let proxyInfo = null;
         let driftAnalysis = null;
         let advancedAnalysis: any = null;
-        const to = txParams.to ? createAddressFromString(txParams.to) : undefined;
+        const to = txParams.to ? Address.fromString(txParams.to) : undefined;
         let addressToAnalyze = to;
         let activeProvider: ethers.JsonRpcProvider | undefined;
 
@@ -166,7 +167,7 @@ export class EvmExecutor {
                     try {
                         const implCode = await activeProvider.getCode(proxyInfo.implementationAddress);
                         if (implCode && implCode !== '0x') {
-                            const implAddress = createAddressFromString(proxyInfo.implementationAddress);
+                            const implAddress = Address.fromString(proxyInfo.implementationAddress);
                             let implAccount = await evm.stateManager.getAccount(implAddress);
                             if (!implAccount) { implAccount = new Account(); }
                             await evm.stateManager.putAccount(implAddress, implAccount);
@@ -196,3 +197,12 @@ export class EvmExecutor {
                     securityReport.flags.push(`Proxy Contract (${proxyInfo.proxyType})`);
                 }
             }
+
+            return {
+                trace: traceResult,
+                securityReport,
+                simulationResult: result
+            };
+        }
+    }
+}
