@@ -22,17 +22,23 @@ export class EvmExecutor {
         const alchemyKey = process.env.ALCHEMY_API_KEY;
         const urls: string[] = [];
 
-        if (chainIdNum === 1) urls.push(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://eth.llamarpc.com");
-        else if (chainIdNum === 137) urls.push(`https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://polygon-rpc.com");
-        else if (chainIdNum === 10) urls.push(`https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://mainnet.optimism.io");
-        else if (chainIdNum === 42161) urls.push(`https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://arb1.arbitrum.io/rpc");
-        else if (chainIdNum === 8453) urls.push(`https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://mainnet.base.org");
+        if (chainIdNum === 1) {
+            urls.push(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`);
+            urls.push("https://rpc.ankr.com/eth");
+            urls.push("https://eth.llamarpc.com");
+            urls.push("https://1rpc.io/eth");
+            urls.push("https://cloudflare-eth.com");
+        }
+        else if (chainIdNum === 137) urls.push(`https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://polygon-rpc.com", "https://rpc.ankr.com/polygon");
+        else if (chainIdNum === 10) urls.push(`https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://mainnet.optimism.io", "https://rpc.ankr.com/optimism");
+        else if (chainIdNum === 42161) urls.push(`https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://arb1.arbitrum.io/rpc", "https://rpc.ankr.com/arbitrum");
+        else if (chainIdNum === 8453) urls.push(`https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`, "https://mainnet.base.org", "https://rpc.ankr.com/base");
         else if (chainIdNum === 11155111) urls.push(`https://eth-sepolia.g.alchemy.com/v2/${alchemyKey}`, "https://rpc.sepolia.org");
         else if (chainIdNum === 56) urls.push("https://bsc-dataseed.binance.org");
         else if (chainIdNum === 31337) {
             urls.push("http://127.0.0.1:8545");
             if (alchemyKey) urls.push(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`);
-            urls.push("https://eth.llamarpc.com");
+            urls.push("https://rpc.ankr.com/eth");
         }
 
         return urls.filter(Boolean);
@@ -108,6 +114,19 @@ export class EvmExecutor {
             status = `Reverted: ${result.execResult.exceptionError.error}`;
         }
         return { status, result };
+    }
+
+    async resetFork(rpcUrl: string) {
+        console.log(`[EvmExecutor] Initializing Fork Configuration with URL: ${rpcUrl}`);
+        if (!rpcUrl) return;
+
+        try {
+            const provider = new ethers.JsonRpcProvider(rpcUrl);
+            await provider.getNetwork();
+            console.log("[EvmExecutor] Fork RPC connection verified.");
+        } catch (err: any) {
+            console.warn(`[EvmExecutor] Failed to verify Fork RPC: ${err.message}`);
+        }
     }
 
     async simulateTransaction(txParams: any, chainId?: number | string) {

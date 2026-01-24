@@ -14,7 +14,7 @@ BigInt.prototype.toJSON = function () { return this.toString(); };
 // Load .env from root directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const envPath = path.resolve(__dirname, "../../.env");
+const envPath = path.resolve(__dirname, ".env");
 
 console.log("[Setup] CWD:", process.cwd());
 console.log("[Setup] Loading .env from:", envPath);
