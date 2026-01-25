@@ -82,17 +82,17 @@ Monitors contracts over time:
 
 ```mermaid
 graph TD
-    User[User / MetaMask] -->|Transaction Request| Snap[MetaMask Snap]
-    Snap -->|Analyze (POST /rpc)| Backend[Backend API]
+    User[User / MetaMask] -->|"Transaction Request"| Snap[MetaMask Snap]
+    Snap -->|"Analyze (POST /rpc)"| Backend[Backend API]
     
     subgraph Backend System
         Backend -->|Coordinate| Pipeline[Analysis Pipeline]
-        Pipeline -->|Fork Chain| EVM[Global EVM Executor]
-        Pipeline -->|Fetch Risk| ML[ML Service]
-        Pipeline -->|Store/Fetch| Redis[(Redis Cache)]
+        Pipeline -->|"Fork Chain"| EVM[Global EVM Executor]
+        Pipeline -->|"Fetch Risk"| ML[ML Service]
+        Pipeline -->|"Store/Fetch"| Redis[(Redis Cache)]
     end
     
-    ML -->|Calibrated Score| Pipeline
+    ML -->|"Calibrated Score"| Pipeline
     Pipeline -->|Verdict| Snap
 ```
 

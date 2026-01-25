@@ -14,23 +14,23 @@ The system is composed of three primary subsystems:
 ```mermaid
 graph TD
     %% Users and Inputs
-    User([User]) -->|Initiates Tx| Wallet[MetaMask]
+    User([User]) -->|"Initiates Tx"| Wallet[MetaMask]
     Wallet -->|Intercept| Snap[Sentinel Snap]
     
     %% Snap Interaction
-    Snap -->|RPC: sentinel_analyze| API_Gateway[Backend API Gateway]
+    Snap -->|"RPC: sentinel_analyze"| API_Gateway[Backend API Gateway]
     
     %% Backend Core
     subgraph Backend_Core [Backend (Node.js/Express)]
-        API_Gateway -->|Request ID| Controller[Analysis Controller]
+        API_Gateway -->|"Request ID"| Controller[Analysis Controller]
         
         %% Data Fetching
-        Controller -->|1. Fetch Code| RPC[RPC Provider (Alchemy)]
-        Controller -->|2. Check Cache| Redis[(Redis Cache)]
+        Controller -->|"1. Fetch Code"| RPC[RPC Provider (Alchemy)]
+        Controller -->|"2. Check Cache"| Redis[(Redis Cache)]
         
         %% Simulation Engine
-        Controller -->|3. Simulate| EVM_Orchestrator[EVM Orchestrator]
-        EVM_Orchestrator -->|Fork State| LocalChain[Local EVM Fork]
+        Controller -->|"3. Simulate"| EVM_Orchestrator[EVM Orchestrator]
+        EVM_Orchestrator -->|"Fork State"| LocalChain[Local EVM Fork]
         
         LocalChain --> BasicSim[Basic Simulation]
         LocalChain --> TimeSim[Time-Travel Sim]
@@ -38,24 +38,24 @@ graph TD
         LocalChain --> Trace[Opcode Tracer]
         
         %% Static Analysis
-        Controller -->|4. Analyze| Static[Static Analyzers]
+        Controller -->|"4. Analyze"| Static[Static Analyzers]
         Static --> ProxyDetect[Proxy Detector]
         Static --> CodeScan[Bytecode Scanner]
     end
     
     %% Intelligence Layer
     subgraph Intelligence [Python ML Service]
-        Controller -->|5. Feature Vector| API_ML[FastAPI Endpoint]
+        Controller -->|"5. Feature Vector"| API_ML[FastAPI Endpoint]
         API_ML -->|Inference| XGBoost[XGBoost Model]
         API_ML -->|Calibrate| Isotonic[Isotonic Calibrator]
-        XGBoost -->|Risk Score| API_ML
+        XGBoost -->|"Risk Score"| API_ML
     end
     
     %% Output
     API_ML -->|Score| Controller
-    Controller -->|Aggregate Verdict| API_Gateway
-    API_Gateway -->|JSON Response| Snap
-    Snap -->|Render UI| Wallet
+    Controller -->|"Aggregate Verdict"| API_Gateway
+    API_Gateway -->|"JSON Response"| Snap
+    Snap -->|"Render UI"| Wallet
 ```
 
 ## 3. Core Components Deep Dive
