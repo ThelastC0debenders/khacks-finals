@@ -13,7 +13,7 @@ The system is composed of three primary subsystems:
 
 ![System Architecture Overview](./images/architecture_diagram.png)
 
-### Live Logic Flow (Mermaid)
+### Live Logic Flow 
 
 ```mermaid
 graph TD
@@ -26,32 +26,32 @@ graph TD
     
     %% Backend Core
     subgraph Backend_Core ["Backend (Node.js/Express)"]
-        API_Gateway -->|"Request ID"| Controller[Analysis Controller]
+        API_Gateway -->|"Request ID"| Controller["Analysis Controller"]
         
         %% Data Fetching
-        Controller -->|"1. Fetch Code"| RPC[RPC Provider (Alchemy)]
-        Controller -->|"2. Check Cache"| Redis[(Redis Cache)]
+        Controller -->|"1. Fetch Code"| RPC["RPC Provider (Alchemy)"]
+        Controller -->|"2. Check Cache"| Redis[("Redis Cache")]
         
         %% Simulation Engine
-        Controller -->|"3. Simulate"| EVM_Orchestrator[EVM Orchestrator]
-        EVM_Orchestrator -->|"Fork State"| LocalChain[Local EVM Fork]
+        Controller -->|"3. Simulate"| EVM_Orchestrator["EVM Orchestrator"]
+        EVM_Orchestrator -->|"Fork State"| LocalChain["Local EVM Fork"]
         
-        LocalChain --> BasicSim[Basic Simulation]
-        LocalChain --> TimeSim[Time-Travel Sim]
-        LocalChain --> ActorSim[Counterfactual Sim]
-        LocalChain --> Trace[Opcode Tracer]
+        LocalChain --> BasicSim["Basic Simulation"]
+        LocalChain --> TimeSim["Time-Travel Sim"]
+        LocalChain --> ActorSim["Counterfactual Sim"]
+        LocalChain --> Trace["Opcode Tracer"]
         
         %% Static Analysis
-        Controller -->|"4. Analyze"| Static[Static Analyzers]
-        Static --> ProxyDetect[Proxy Detector]
-        Static --> CodeScan[Bytecode Scanner]
+        Controller -->|"4. Analyze"| Static["Static Analyzers"]
+        Static --> ProxyDetect["Proxy Detector"]
+        Static --> CodeScan["Bytecode Scanner"]
     end
     
     %% Intelligence Layer
     subgraph Intelligence ["Python ML Service"]
-        Controller -->|"5. Feature Vector"| API_ML[FastAPI Endpoint]
-        API_ML -->|Inference| XGBoost[XGBoost Model]
-        API_ML -->|Calibrate| Isotonic[Isotonic Calibrator]
+        Controller -->|"5. Feature Vector"| API_ML["FastAPI Endpoint"]
+        API_ML -->|Inference| XGBoost["XGBoost Model"]
+        API_ML -->|Calibrate| Isotonic["Isotonic Calibrator"]
         XGBoost -->|"Risk Score"| API_ML
     end
     
