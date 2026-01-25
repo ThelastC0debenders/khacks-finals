@@ -1,11 +1,16 @@
 import { ethers } from "ethers";
-import { EVM } from "@ethereumjs/evm";
-import { Common, Chain, Hardfork } from "@ethereumjs/common";
-import { Address, hexToBytes, Account } from "@ethereumjs/util";
+import { EVM, createEVM } from "@ethereumjs/evm";
+import { Common, Chain, Hardfork, Mainnet } from "@ethereumjs/common";
+import { Address, hexToBytes, createAddressFromString, Account } from "@ethereumjs/util";
 import { SecurityAnalyzer } from "../analyzers/SecurityAnalyzer.js";
 import { ProxyDetector } from "../analyzers/ProxyDetector.js";
-import { ExplanationEngine } from "../analyzers/ExplanationEngine.js";
+import { ScanHistory } from "../services/ScanHistory.js";
+import { AdvancedSimulator } from "../analyzers/AdvancedSimulator.js";
 import { OpcodeTracer } from "../analyzers/OpcodeTracer.js";
+import { ExplanationEngine } from "../analyzers/ExplanationEngine.js";
+import { MLService } from "../services/MLService.js";
+import { TrainingDataCollector } from "../services/TrainingDataCollector.js";
+import { riskWorker } from "../risk/RiskWorker.js";
 
 export class EvmExecutor {
     constructor() { }
@@ -38,19 +43,20 @@ export class EvmExecutor {
         return urls.filter(Boolean);
     }
 
-    private async setupForkedEVM(chainId: number | string, toAddressStr: string | undefined, timestampOffset: number = 0): Promise<{ evm: EVM, success: boolean }> {
-        const common = new Common({ chain: Chain.Mainnet, hardfork: Hardfork.Cancun });
-        const evm = await EVM.create({ common });
+    private async setupForkedEVM(chainId: number | string, toAddressStr: string | undefined, timestampOffset: number = 0): Promise<{ evm: EVM, success: boolean, bytecode: string | null }> {
+        const common = new Common({ chain: Mainnet, hardfork: Hardfork.Cancun });
+        const evm = await createEVM({ common });
 
         let success = false;
+        let bytecode: string | null = null;
         if (toAddressStr && chainId) {
             const rpcUrls = this.resolveRpcUrls(chainId);
-            const toAddress = Address.fromString(toAddressStr);
+            const toAddress = createAddressFromString(toAddressStr);
 
             if (rpcUrls.length > 0) {
                 for (const rpcUrl of rpcUrls) {
                     try {
-                        const provider = new ethers.JsonRpcProvider(rpcUrl);
+                        const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true });
                         const code = await Promise.race([
                             provider.getCode(toAddressStr),
                             new Promise<string>((_, reject) => setTimeout(() => reject(new Error("RPC Timeout")), 5000))
@@ -63,25 +69,21 @@ export class EvmExecutor {
                             let toAccount = await evm.stateManager.getAccount(toAddress);
                             if (!toAccount) { toAccount = new Account(); }
                             await evm.stateManager.putAccount(toAddress, toAccount);
-                            await evm.stateManager.putContractCode(toAddress, codeBytes);
-                            console.log(`[Fork] Fetched code from ${rpcUrl}: ${code.length > 10 ? code.slice(0, 10) + '...' : code}`);
+                            await (evm.stateManager as any).putCode(toAddress, codeBytes);
                             success = true;
+                            bytecode = code;
                             break;
                         } else {
-                            console.log(`[Fork] Code is empty/0x at ${toAddressStr} on ${rpcUrl}`);
                             const chainIdNum = Number(chainId.toString().split(':')[1] || chainId);
                             if (chainIdNum === 31337) continue;
                             success = true;
                             break;
                         }
-                    } catch (err: any) {
-                        console.error(`[Fork] Error setupForkedEVM loop: ${err.message}`);
-                        continue;
-                    }
+                    } catch (err) { continue; }
                 }
             }
         }
-        return { evm, success };
+        return { evm, success, bytecode };
     }
 
     private async executeCall(evm: EVM, txParams: any, sender: Address, timestampOffset: number = 0) {
@@ -90,7 +92,7 @@ export class EvmExecutor {
         account.balance = BigInt("0x100000000000000000000"); // 100 ETH
         await evm.stateManager.putAccount(sender, account);
 
-        const to = txParams.to ? Address.fromString(txParams.to) : undefined;
+        const to = txParams.to ? createAddressFromString(txParams.to) : undefined;
         const dataBuffer = txParams.data && txParams.data !== "0x" ? hexToBytes(txParams.data) : new Uint8Array(0);
         const value = txParams.value ? BigInt(txParams.value) : 0n;
         const gasLimit = BigInt(5000000);
@@ -112,8 +114,8 @@ export class EvmExecutor {
 
     async simulateTransaction(txParams: any, chainId?: number | string) {
         console.log("Initializing Raw EVM...");
-        const { evm, success } = await this.setupForkedEVM(chainId || 1, txParams.to);
-        const sender = Address.fromString(txParams.from);
+        const { evm, success, bytecode } = await this.setupForkedEVM(chainId || 1, txParams.to);
+        const sender = createAddressFromString(txParams.from);
 
         let instructionCount = 0;
         let sstoreCount = 0;
@@ -147,7 +149,7 @@ export class EvmExecutor {
         let proxyInfo = null;
         let driftAnalysis = null;
         let advancedAnalysis: any = null;
-        const to = txParams.to ? Address.fromString(txParams.to) : undefined;
+        const to = txParams.to ? createAddressFromString(txParams.to) : undefined;
         let addressToAnalyze = to;
         let activeProvider: ethers.JsonRpcProvider | undefined;
 
@@ -172,11 +174,11 @@ export class EvmExecutor {
                     try {
                         const implCode = await activeProvider.getCode(proxyInfo.implementationAddress);
                         if (implCode && implCode !== '0x') {
-                            const implAddress = Address.fromString(proxyInfo.implementationAddress);
+                            const implAddress = createAddressFromString(proxyInfo.implementationAddress);
                             let implAccount = await evm.stateManager.getAccount(implAddress);
                             if (!implAccount) { implAccount = new Account(); }
                             await evm.stateManager.putAccount(implAddress, implAccount);
-                            await evm.stateManager.putContractCode(implAddress, hexToBytes(implCode as `0x${string}`));
+                            await (evm.stateManager as any).putCode(implAddress, hexToBytes(implCode as `0x${string}`));
                             addressToAnalyze = implAddress;
                             console.log(`[ProxyDetector] Implementation code injected (${implCode.length} chars)`);
                         }
@@ -203,23 +205,329 @@ export class EvmExecutor {
                 }
             }
 
-            return {
-                trace: traceResult,
-                securityReport,
-                instructionCount,
-                callCount,
-                status,
-                simulationResult: {
-                    gasUsed: result.execResult.executionGasUsed.toString(),
-                    returnValue: Buffer.from(result.execResult.returnValue).toString('hex'),
-                    logs: result.execResult.logs?.map(l => ({
-                        address: l[0].toString(),
-                        topics: l[1].map(t => Buffer.from(t).toString('hex')),
-                        data: Buffer.from(l[2]).toString('hex')
-                    })),
-                    exceptionError: result.execResult.exceptionError ? result.execResult.exceptionError.error : undefined
+            // [PHASE 2] ENHANCED ADVANCED SIMULATION
+            // Uses comprehensive time-travel and counterfactual analysis
+            console.log("[Phase2] Running Enhanced Simulation Capabilities...");
+
+            try {
+                const advancedSimulator = new AdvancedSimulator(chainId || 1, this.resolveRpcUrls(chainId || 1));
+
+                advancedAnalysis = await advancedSimulator.runComprehensiveAnalysis(
+                    txParams,
+                    securityReport.ownerAddress,
+                    undefined // deployer address - could be detected via creation tx
+                );
+
+                console.log("[Phase2] Time-Travel Analysis:", advancedAnalysis.timeTravel.summary);
+                console.log("[Phase2] Counterfactual Analysis:", advancedAnalysis.counterfactual.summary);
+                console.log("[Phase2] Overall:", advancedAnalysis.overallSummary);
+
+                // Merge advanced analysis results into security report
+                if (advancedAnalysis.isScam) {
+                    securityReport.isHoneypot = true;
+                    securityReport.riskScore = Math.max(securityReport.riskScore, advancedAnalysis.overallRiskScore);
+                    securityReport.friendlyExplanation = advancedAnalysis.overallSummary;
                 }
-            };
+
+                // Add time-travel risk flags
+                for (const flag of advancedAnalysis.timeTravel.riskFlags) {
+                    if (!securityReport.flags.includes(flag)) {
+                        securityReport.flags.push(flag);
+                    }
+                }
+
+                // Add counterfactual risk flags
+                for (const flag of advancedAnalysis.counterfactual.riskFlags) {
+                    if (!securityReport.flags.includes(flag)) {
+                        securityReport.flags.push(flag);
+                    }
+                }
+
+                // Add privilege differences as flags
+                for (const diff of advancedAnalysis.counterfactual.privilegeDiff) {
+                    const diffFlag = `${diff.severity.toUpperCase()}: ${diff.description} - User: ${diff.userOutcome}, Owner: ${diff.ownerOutcome}`;
+                    if (!securityReport.flags.includes(diffFlag)) {
+                        securityReport.flags.push(diffFlag);
+                    }
+                }
+
+                // Update risk score based on advanced analysis
+                securityReport.riskScore = Math.max(securityReport.riskScore, advancedAnalysis.overallRiskScore);
+
+                // [RECONCILIATION] Phase 1 vs Phase 2
+                // If Phase 1 reverted (likely due to 0 balance), but Phase 2 succeeded (injected balance), 
+                // trust Phase 2 and clear the error flag.
+                if (advancedAnalysis.timeTravel.currentResult === 'Success') {
+                    const revertIdx = securityReport.flags.indexOf("Simulation Reverted");
+                    if (revertIdx !== -1) {
+                        console.log("[Reconciliation] Phase 2 success overrides Phase 1 revert. Clearing flag.");
+                        securityReport.flags.splice(revertIdx, 1);
+                        securityReport.riskScore = Math.max(0, securityReport.riskScore - 20); // Reduce risk
+
+                        // Also clear mechanism story if it was just "Transaction Failed"
+                        if (securityReport.mechanismStory?.title === 'Transaction Failed') {
+                            securityReport.mechanismStory = {
+                                title: 'Simulation Success (Funded)',
+                                story: 'Transaction executes successfully when account is funded.',
+                                severity: 'Safe'
+                            };
+                        }
+                    }
+                }
+
+            } catch (advErr: any) {
+                console.warn("[Phase2] Advanced simulation failed:", advErr.message);
+            }
+
+            // [PHASE 3 Refinement] Reconcile Phase 2 and Phase 3
+            // If Phase 2 detected a scam (Revert/Honeypot) but Phase 3 trace (local) was Safe, it's likely due to missing storage.
+            // We trust Phase 2 (RPC-based) more for outcomes.
+            if (advancedAnalysis && advancedAnalysis.isScam && securityReport.mechanismStory.severity === 'Safe') {
+                console.log("[Phase3] Reconciling: Overwriting Safe story with Phase 2 detection.");
+
+                if (advancedAnalysis.counterfactual.hasOwnerPrivileges) {
+                    securityReport.mechanismStory = {
+                        title: "Privilege Abuse Detected",
+                        story: "🕵️ The Detective noticed a discrepancy: Expected safe execution, but real-world simulation confirms only the OWNER can trade. This is a clear Honeypot.",
+                        severity: "High"
+                    };
+                } else if (advancedAnalysis.timeTravel.isTimeSensitive) {
+                    securityReport.mechanismStory = {
+                        title: "Hidden Time-Lock",
+                        story: "🕵️ The Detective found that while code looks clean, it relies on time checks (likely uninitialized in scan) that strictly block trading.",
+                        severity: "High"
+                    };
+                } else {
+                    securityReport.mechanismStory = {
+                        title: "Hidden Revert Mechanism",
+                        story: "🕵️ The execution path is misleading. Deep simulation confirms this transaction WILL fail for you, likely due to hidden storage dependencies.",
+                        severity: "High"
+                    };
+                }
+            }
+
+            console.log("Security Report:", securityReport);
+
+            const chainIdNum = typeof chainId === 'string' && chainId.includes(':') ? parseInt(chainId.split(':')[1]) : Number(chainId);
+            try {
+                driftAnalysis = await ScanHistory.analyzeDrift(to!.toString(), securityReport);
+                if (driftAnalysis.hasDrift) {
+                    console.log(`[ScanHistory] Behavioral drift detected!`);
+                    if (driftAnalysis.riskDelta > 0) {
+                        securityReport.flags.push(`Risk Increased (+${driftAnalysis.riskDelta} since last scan)`);
+                    }
+                }
+                await ScanHistory.storeScan(to!.toString(), chainIdNum, securityReport,
+                    proxyInfo ? { isProxy: proxyInfo.isProxy, implementationAddress: proxyInfo.implementationAddress } : undefined
+                );
+            } catch (err: any) { console.warn(`[ScanHistory] Redis operation failed: ${err.message}`); }
         }
+
+        // [PHASE 4] ML-Powered Analysis + Training Data Collection
+        let mlAnalysisResult = null;
+        let featureVector = null;
+        let mlErrorReason = null;
+
+        if (advancedAnalysis) { // Only run if analysis succeeded
+            try {
+                featureVector = MLService.buildFeatureVector(
+                    { status },
+                    advancedAnalysis,
+                    securityReport,
+                    traceResult,
+                    proxyInfo,
+                    bytecode
+                );
+                console.log("[Phase4] Sending continuous features to ML API:", JSON.stringify(featureVector, null, 2));
+                mlAnalysisResult = await MLService.analyze(featureVector);
+
+                if (mlAnalysisResult) {
+                    const prob = (mlAnalysisResult.scam_probability * 100).toFixed(1);
+                    const uncertainty = (mlAnalysisResult.uncertainty * 100).toFixed(0);
+                    console.log(`[Phase4] ML Verdict: ${mlAnalysisResult.verdict} (${prob}% ± ${uncertainty}%)`);
+                }
+            } catch (mlErr: any) {
+                console.warn("[Phase4] ML analysis failed:", mlErr.message);
+                mlErrorReason = mlErr.message;
+            }
+        } else {
+            mlErrorReason = "Advanced analysis missing";
+        }
+
+        // [PHASE 5] Generate Combined Verdict (Rule-based PRIMARY, ML secondary)
+        // Rule-based detection remains primary for critical patterns
+        const ruleBasedIsScam =
+            securityReport?.isHoneypot === true ||
+            advancedAnalysis?.isScam === true ||
+            advancedAnalysis?.counterfactual?.isHoneypot === true ||
+            advancedAnalysis?.counterfactual?.hasOwnerPrivileges === true;
+
+        const riskScore = securityReport?.riskScore ?? 0;
+
+        let finalVerdict: "BLOCK" | "WARN" | "SAFE";
+        let verdictReason: string;
+        let verdictConfidence: number;
+        let verdictSource: string;
+
+        if (ruleBasedIsScam) {
+            finalVerdict = "BLOCK";
+            // Ensure reason explains the BLOCK, never show a "Safe" summary here
+            if (securityReport?.isHoneypot) {
+                verdictReason = securityReport.mechanismStory?.severity === 'High'
+                    ? securityReport.mechanismStory.story
+                    : (securityReport.friendlyExplanation || "Honeypot characteristics detected.");
+            } else if (advancedAnalysis?.isScam) {
+                verdictReason = advancedAnalysis.overallSummary; // This is usually "SCAM DETECTED..."
+            } else {
+                verdictReason = "Critical security risks detected.";
+            }
+
+            // Fallback if the above logic somehow picked a "Safe" summary
+            // We check for common "Safe" keywords and ANSI color codes or icons that denote safety
+            const isSafeText =
+                verdictReason.includes("LOW RISK") ||
+                verdictReason.includes("Safe") ||
+                verdictReason.includes("No major issues") ||
+                verdictReason.includes("✅");
+
+            if (isSafeText) {
+                verdictReason = "High risk security flags detected (Honeypot / Privilege Abuse)";
+            }
+
+            verdictConfidence = 100;
+            verdictSource = "RULE_BASED";
+        } else if (riskScore >= 50) {
+            finalVerdict = "WARN";
+            verdictReason = `Risk score ${riskScore}/100 - Proceed with caution`;
+            verdictConfidence = 80;
+            verdictSource = "RISK_SCORE";
+        } else if (mlAnalysisResult) {
+            // Use calibrated ML probabilities
+            const scamProb = mlAnalysisResult.scam_probability;
+            if (scamProb > 0.7) {
+                finalVerdict = "BLOCK";
+                verdictReason = `AI detected high risk: ${mlAnalysisResult.reason}`;
+                verdictConfidence = scamProb * 100;
+                verdictSource = "ML_CALIBRATED";
+            } else if (scamProb > 0.4) {
+                finalVerdict = "WARN";
+                verdictReason = mlAnalysisResult.reason;
+                verdictConfidence = scamProb * 100;
+                verdictSource = "ML_CALIBRATED";
+            } else {
+                finalVerdict = "SAFE";
+                verdictReason = mlAnalysisResult.reason || "No significant risks detected";
+                verdictConfidence = (1 - scamProb) * 100;
+                verdictSource = "ML_CALIBRATED";
+            }
+        } else {
+            finalVerdict = "SAFE";
+            verdictReason = "No significant risks detected";
+            verdictConfidence = 50;
+            verdictSource = "DEFAULT";
+        }
+
+        console.log(`[Phase5] Final Verdict: ${finalVerdict} - ${verdictReason}`);
+
+        // [PHASE 6] Collect Training Data for ML model improvement
+        if (featureVector && to) {
+            try {
+                const chainIdNum = typeof chainId === 'string' && chainId.includes(':')
+                    ? parseInt(chainId.split(':')[1])
+                    : Number(chainId || 1);
+
+                TrainingDataCollector.collect(
+                    to.toString(),
+                    chainIdNum,
+                    featureVector,
+                    securityReport,
+                    advancedAnalysis
+                );
+            } catch (trainErr: any) {
+                console.warn("[Phase6] Training data collection failed:", trainErr.message);
+            }
+        }
+
+        // [PHASE 7] Off-Chain Risk Analysis (Liquidity, Holders)
+        let riskAnalysis = null;
+        if (to) {
+            try {
+                riskAnalysis = await riskWorker.analyzeNow(to.toString());
+            } catch (e: any) {
+                console.warn("[Phase7] Risk Analysis failed:", e.message);
+            }
+
+            // [PHASE 7.5] Override Verdict based on Off-Chain Risk
+            if (riskAnalysis) {
+                const isRug = riskAnalysis.scamType === 'Liquidity Rug';
+                const isSoftRug = riskAnalysis.scamType === 'Soft Rug';
+
+                if (isRug || isSoftRug || riskAnalysis.riskScore > 80) {
+                    const severity = isRug ? "BLOCK" : "WARN";
+
+                    // Only override if current verdict is SAFE or less severe
+                    if (finalVerdict === "SAFE" || (finalVerdict === "WARN" && severity === "BLOCK")) {
+                        finalVerdict = severity;
+                        verdictReason = `⚠️ Market Risk: ${riskAnalysis.scamType} detected.`;
+                        verdictConfidence = 90;
+                        verdictSource = "RISK_ENGINE";
+                    }
+                }
+            }
+        }
+
+        // Return the complete response
+        return {
+            status: status,
+            instructionCount,
+            sstoreCount,
+            callCount,
+            securityReport,
+            proxyInfo,
+            driftAnalysis: driftAnalysis ? {
+                hasDrift: driftAnalysis.hasDrift,
+                riskDelta: driftAnalysis.riskDelta,
+                newFlags: driftAnalysis.newFlags,
+                removedFlags: driftAnalysis.removedFlags,
+                previousScanTimestamp: driftAnalysis.previousScan?.timestamp
+            } : null,
+            advancedAnalysis: advancedAnalysis ? {
+                timeTravel: advancedAnalysis.timeTravel,
+                counterfactual: advancedAnalysis.counterfactual,
+                overallRiskScore: advancedAnalysis.overallRiskScore,
+                overallSummary: advancedAnalysis.overallSummary,
+                isScam: advancedAnalysis.isScam
+            } : null,
+            mlAnalysis: mlAnalysisResult,
+            mlError: mlErrorReason,
+            // Combined Final Verdict with calibrated ML support
+            finalVerdict: {
+                verdict: finalVerdict,
+                reason: verdictReason,
+                confidence: verdictConfidence,
+                source: verdictSource,
+                uncertainty: mlAnalysisResult?.uncertainty,
+                confidence_interval: mlAnalysisResult?.confidence_interval
+            },
+            riskAnalysis // Phase 7
+        };
+    }
+
+    async resetFork(rpcUrl: string, blockNumber?: number) { console.log("Raw EVM does not support RPC forking."); }
+    async getTrace(txHash: string) { return {}; }
+    async getStateDiff(txHash: string) { return {}; }
+    async getSimulationResult(trace: any, diff: any) { return {}; }
+
+    // Legacy demo methods (stubs for backwards compatibility)
+    async simulateTransfer() {
+        console.log("simulateTransfer is deprecated. Use simulateTransaction() instead.");
+        return null;
+    }
+    async simulateApproveDrain() {
+        console.log("simulateApproveDrain is deprecated. Use simulateTransaction() instead.");
+        return null;
+    }
+    formatForSnap(trace: any, diff: any) {
+        return { trace: trace, diff: diff, formatted: true };
     }
 }

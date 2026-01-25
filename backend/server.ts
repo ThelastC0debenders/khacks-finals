@@ -1,15 +1,6 @@
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import express from "express";
-import cors from "cors";
-import { EvmExecutor } from "./src/evm/EvmExecutor.js";
-import { RedisClient } from "./src/services/RedisClient.js";
-import { ScanHistory } from "./src/services/ScanHistory.js";
-
-// @ts-ignore
-BigInt.prototype.toJSON = function () { return this.toString(); };
-
 
 // Load .env from root directory
 const __filename = fileURLToPath(import.meta.url);
@@ -31,6 +22,13 @@ if (process.env.ALCHEMY_API_KEY) {
     console.log("[Setup] Alchemy Key (first 5 chars):", process.env.ALCHEMY_API_KEY.substring(0, 5) + "...");
 }
 
+import express from "express";
+import cors from "cors";
+import { EvmExecutor } from "./evm/EvmExecutor.ts";
+import { RedisClient } from "./services/RedisClient.ts";
+import { ScanHistory } from "./services/ScanHistory.ts";
+import { riskWorker } from "./risk/RiskWorker.ts";
+
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -51,6 +49,10 @@ const executor = new EvmExecutor();
     try {
         await RedisClient.connect();
         console.log("[Setup] Redis connected successfully");
+
+        // Initialize Risk Worker
+        await riskWorker.init();
+        console.log("[Setup] Risk Worker initialized");
     } catch (err: any) {
         console.warn("[Setup] Redis connection failed (scan history will be disabled):", err.message);
     }
@@ -75,14 +77,21 @@ app.post("/rpc", async (req, res) => {
             const payload = await executor.simulateTransaction(transaction, chainId);
             console.log("Generated Payload:", payload);
 
-            res.json({
+            const jsonString = JSON.stringify({
                 jsonrpc: "2.0",
                 id,
                 result: payload
-            });
+            }, (key, value) =>
+                typeof value === 'bigint'
+                    ? value.toString()
+                    : value // return everything else unchanged
+            );
+
+            res.setHeader('Content-Type', 'application/json');
+            res.send(jsonString);
         } catch (error: any) {
-            console.error("❌ Simulation Error:", error.message);
-            return res.json({
+            console.error("Simulation error:", error);
+            res.json({
                 jsonrpc: "2.0",
                 id,
                 error: {
@@ -166,6 +175,33 @@ app.get("/drift", async (req, res) => {
             success: false,
             error: error.message || "Failed to fetch drift data"
         });
+    }
+});
+
+// GET /risk - Get risk analysis for a token
+app.get("/risk", async (req, res) => {
+    try {
+        const token = req.query.token as string;
+        if (!token) {
+            res.status(400).json({ error: "Missing token query parameter" });
+            return;
+        }
+
+        const result = await riskWorker.getRisk(token);
+
+        if (result) {
+            res.json(result);
+        } else {
+            // Not in cache, triggered analysis
+            res.status(202).json({
+                status: "pending",
+                message: "Risk analysis started. Please retry shortly.",
+                token: token
+            });
+        }
+    } catch (error: any) {
+        console.error("Risk API error:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 
