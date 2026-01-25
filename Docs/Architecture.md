@@ -11,6 +11,10 @@ The system is composed of three primary subsystems:
 
 ## 2. Detailed Architecture Diagram
 
+![System Architecture Overview](./images/architecture_diagram.png)
+
+### Live Logic Flow (Mermaid)
+
 ```mermaid
 graph TD
     %% Users and Inputs
@@ -21,7 +25,7 @@ graph TD
     Snap -->|"RPC: sentinel_analyze"| API_Gateway[Backend API Gateway]
     
     %% Backend Core
-    subgraph Backend_Core [Backend (Node.js/Express)]
+    subgraph Backend_Core ["Backend (Node.js/Express)"]
         API_Gateway -->|"Request ID"| Controller[Analysis Controller]
         
         %% Data Fetching
@@ -44,7 +48,7 @@ graph TD
     end
     
     %% Intelligence Layer
-    subgraph Intelligence [Python ML Service]
+    subgraph Intelligence ["Python ML Service"]
         Controller -->|"5. Feature Vector"| API_ML[FastAPI Endpoint]
         API_ML -->|Inference| XGBoost[XGBoost Model]
         API_ML -->|Calibrate| Isotonic[Isotonic Calibrator]
